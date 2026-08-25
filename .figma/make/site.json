@@ -1,0 +1,10 @@
+{
+  "description": "An AI-powered AR stylist app enabling users to virtually try on clothes, customize looks, and shop seamlessly with personalized style guidance.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
