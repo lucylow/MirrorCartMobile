@@ -1,0 +1,1 @@
+ALTER TABLE `styling_sessions` ADD `archivedAt` timestamp;
