@@ -1,0 +1,18 @@
+import { useLocalSearchParams, router } from "expo-router";
+import { Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { ScreenContainer } from "@/components/screen-container";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { SerifTitle, mirrorPalette } from "@/components/mirror-ui";
+import { trpc } from "@/lib/trpc";
+
+export default function ProductDetailScreen() {
+  const { productId } = useLocalSearchParams<{ productId: string }>();
+  const product = trpc.catalog.get.useQuery({ productId: productId ?? "" }, { enabled: Boolean(productId) });
+
+  if (product.isLoading) return <ScreenContainer className="px-5"><Text className="pt-8 text-base text-muted">Checking the latest product details…</Text></ScreenContainer>;
+  if (product.isError || !product.data) return <ScreenContainer className="px-5"><Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back"><IconSymbol name="chevron.left" size={25} color="#1E1D1A" /></Pressable><View className="mt-16 rounded-2xl border border-border bg-surface p-5"><Text className="text-xl font-bold text-foreground">Product unavailable</Text><Text className="mt-2 text-sm leading-5 text-muted">We could not confirm this catalog item. Try again or return to your draft cart.</Text><Pressable onPress={() => product.refetch()} style={{ backgroundColor: mirrorPalette.gold, borderRadius: 14, paddingVertical: 14, alignItems: "center", marginTop: 18 }}><Text className="font-bold text-white">Try again</Text></Pressable></View></ScreenContainer>;
+
+  const { product: item, freshness, availabilityCopy } = product.data;
+  const freshnessCopy = freshness === "fresh" ? "Checked recently" : freshness === "stale" ? "Needs a fresh merchant check" : "Demo catalog · merchant check required";
+  return <ScreenContainer className="px-5" edges={["top", "left", "right"]}><ScrollView contentContainerStyle={{ paddingBottom: 36 }}><Pressable onPress={() => router.back()} style={{ paddingTop: 12 }} accessibilityRole="button" accessibilityLabel="Back"><IconSymbol name="chevron.left" size={25} color="#1E1D1A" /></Pressable><Image source={{ uri: item.imageUrl }} className="mt-5 h-72 w-full rounded-[28px]" /><Text className="mt-6 text-xs font-semibold tracking-[1.8px] text-primary">{item.brand.toUpperCase()}</Text><SerifTitle style={{ marginTop: 8 }}>{item.name}</SerifTitle><Text className="mt-2 text-base text-muted">{item.color} · ${ (item.priceCents / 100).toFixed(0) }</Text><View className="mt-6 rounded-2xl border border-border bg-surface p-4"><Text className="text-xs font-semibold tracking-[1.3px] text-muted">CATALOG STATUS</Text><Text className="mt-2 text-sm font-semibold text-foreground">{freshnessCopy}</Text><Text className="mt-1 text-sm leading-5 text-muted">{availabilityCopy}</Text><Text className="mt-2 text-xs leading-5 text-muted">Source: {item.sourceName ?? "Merchant source not connected"}. Prices, sizing, and stock are confirmed outside MirrorCart.</Text></View><Pressable onPress={() => Linking.openURL(item.merchantUrl)} accessibilityRole="link" accessibilityLabel={`Open ${item.name} merchant page`} style={{ backgroundColor: mirrorPalette.gold, borderRadius: 16, paddingVertical: 16, alignItems: "center", marginTop: 22 }}><Text className="text-base font-bold text-white">Open merchant details</Text></Pressable><Pressable onPress={() => product.refetch()} accessibilityRole="button" accessibilityLabel="Refresh product details" style={{ alignItems: "center", paddingVertical: 15 }}><Text className="text-sm font-semibold text-primary">Refresh product details</Text></Pressable></ScrollView></ScreenContainer>;
+}
