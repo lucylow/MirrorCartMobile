@@ -6,9 +6,7 @@ import { getVtoProvider } from "./vto";
 import { canExecute, cartReducer, dedupeCandidates, groundProduct, isBlocked } from "../shared/agentic";
 import { sourceLabel, type DataSource } from "../shared/data-source";
 import { availabilityCopy, isProductFresh } from "../shared/catalog";
-import { rankLooksByWardrobe } from "../lib/wardrobe-personalization";
 import { consumeCartApproval, createCartApproval, getCartDurable } from "./session-store";
-import { refreshCloverAvailability } from "./merchant-availability";
 
 const productCatalog: Product[] = [
   { id: "dress-001", name: "Satin Column Dress", brand: "Atelier North", category: "dress", priceCents: 8900, imageUrl: "https://images.unsplash.com/photo-1566174053879-31528523f8ae?auto=format&fit=crop&w=900&q=80", merchantUrl: "https://example.com/atelier-north-satin-dress", color: "ink" },
@@ -33,7 +31,6 @@ export const total = (items: Product[]) => items.reduce((sum, item) => sum + ite
 
 export const draftWarnings = (cart: CartState) => cart.items.filter(({ product }) => !product.owned && product.availability !== "in_stock").map(({ product }) => `${product.name}: ${availabilityCopy(product)}`);
 export const cartContainsProduct = (cart: CartState, productId: string) => cart.items.some(({ product }) => product.id === productId);
-export const markCartApproved = (cart: CartState): CartState => ({ ...cart, status: "approved", approvalExpiresAt: undefined });
 
 export function composeLooks(intent: StylingIntent): Look[] {
   const ownedHeel = intent.ownedItems.some((item) => item.toLowerCase().includes("heel"));
@@ -41,12 +38,11 @@ export function composeLooks(intent: StylingIntent): Look[] {
   const minimalItems = [productCatalog[0], shoe, productCatalog[5]];
   const romanticItems = [productCatalog[1], shoe, productCatalog[4]];
   const statementItems = [productCatalog[1], productCatalog[2], productCatalog[5]];
-  const looks = [
-    { id: "look-01", title: "Minimal Chic", subtitle: "Clean lines, quiet confidence", rationale: "A streamlined silhouette keeps the look elegant while leaving room for your own accessories.", items: minimalItems, totalCents: total(minimalItems), status: "draft" as const },
-    { id: "look-02", title: "Modern Romantic", subtitle: "A little color, still effortless", rationale: "Cherry accents create a memorable focal point without pushing the outfit past polished.", items: romanticItems, totalCents: total(romanticItems), status: "draft" as const },
-    { id: "look-03", title: "Statement Guest", subtitle: "Soft shine after dark", rationale: "A richer palette and metallic detail make this the most expressive option for the evening.", items: statementItems, totalCents: total(statementItems), status: "draft" as const },
-  ].map((look) => ({ ...look, status: look.totalCents <= intent.budgetCents ? "draft" as const : "error" as const }));
-  return intent.mode === "closet" && ownedHeel ? rankLooksByWardrobe(looks, [shoe]) : looks;
+  return [
+    { id: "look-01", title: "Minimal Chic", subtitle: "Clean lines, quiet confidence", rationale: "A streamlined silhouette keeps the look elegant while leaving room for your own accessories.", items: minimalItems, totalCents: total(minimalItems), status: "draft" },
+    { id: "look-02", title: "Modern Romantic", subtitle: "A little color, still effortless", rationale: "Cherry accents create a memorable focal point without pushing the outfit past polished.", items: romanticItems, totalCents: total(romanticItems), status: "draft" },
+    { id: "look-03", title: "Statement Guest", subtitle: "Soft shine after dark", rationale: "A richer palette and metallic detail make this the most expressive option for the evening.", items: statementItems, totalCents: total(statementItems), status: "draft" },
+  ].map((look) => ({ ...look, status: look.totalCents <= intent.budgetCents ? "draft" : "error" }));
 }
 
 export const appRouter = router({
@@ -142,7 +138,6 @@ export const appRouter = router({
     validateAction: publicProcedure.input(z.object({ action: z.string() })).query(({ input }) => ({ allowed: !isBlocked(input.action) && input.action !== "REQUEST_CHECKOUT_APPROVAL", requiresApproval: input.action === "REQUEST_CHECKOUT_APPROVAL", message: input.action === "REQUEST_CHECKOUT_APPROVAL" ? "User approval is required before checkout." : "Action is allowed within the draft shopping boundary." })),
   }),
   commerce: router({
-    refreshAvailability: publicProcedure.input(z.object({ products: z.array(productInput).max(50) })).mutation(async ({ input }) => refreshCloverAvailability(input.products)),
     prepareDraft: publicProcedure.input(z.object({ look: z.object({ id: z.string(), items: z.array(productInput) }) })).mutation(async ({ input }) => {
       const items = input.look.items.map((product) => ({ product, quantity: 1 }));
       const cart: CartState = { id: `cart-${Date.now()}`, lookId: input.look.id, items, totalCents: total(input.look.items), status: "draft" };
@@ -191,24 +186,13 @@ export const appRouter = router({
       await persistCart(updated);
       return { cart: updated, approval };
     }),
-    reissueApproval: publicProcedure.input(z.object({ cartId: z.string() })).mutation(async ({ input }) => {
-      const cart = await getCartDurable(input.cartId);
-      if (!cart || cart.status !== "awaiting_approval") throw new Error("Only an awaiting-approval request can be refreshed");
-      if (!cart.approvalExpiresAt) throw new Error("Approval timing is unavailable; review the draft and try again");
-      const warnings = draftWarnings(cart);
-      if (warnings.length) throw new Error(`Draft validation failed: ${warnings.join(" · ")}`);
-      const approval = createCartApproval(input.cartId);
-      const updated: CartState = { ...cart, approvalExpiresAt: approval.expiresAt };
-      await persistCart(updated);
-      return { cart: updated, approval };
-    }),
     approve: publicProcedure.input(z.object({ cartId: z.string(), token: z.string().uuid() })).mutation(async ({ input }) => {
       const cart = await getCartDurable(input.cartId);
       if (!cart || cart.status !== "awaiting_approval") throw new Error("Approval is invalid or expired");
       const warnings = draftWarnings(cart);
       if (warnings.length) throw new Error(`Approval blocked: ${warnings.join(" · ")}`);
       if (!consumeCartApproval(input.token, input.cartId)) throw new Error("Approval is invalid or expired");
-      return persistCart(markCartApproved(cart));
+      return persistCart({ ...cart, status: "approved" });
     }),
   }),
   cart: router({

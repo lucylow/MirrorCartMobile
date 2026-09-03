@@ -48,6 +48,7 @@ export function NetworkStatusBanner() {
       accessibilityRole="alert"
       accessibilityLabel={presentation.accessibilityLabel}
       style={{
+        pointerEvents: presentation.kind === "reconnected" ? "auto" : "none",
         position: "absolute",
         top: 12,
         left: 20,
